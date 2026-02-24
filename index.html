@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<title>Setlist — Show Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg: #0d0d0d;
+    --surface: #161616;
+    --surface2: #1e1e1e;
+    --border: #2a2a2a;
+    --accent: #c8a96e;
+    --accent2: #e8c98e;
+    --text: #f0ebe0;
+    --muted: #7a7570;
+    --danger: #c0392b;
+    --success: #27ae60;
+    --radius: 12px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grain overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.4;
+  }
+
+  header {
+    padding: 28px 20px 16px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: rgba(13,13,13,0.95);
+    backdrop-filter: blur(12px);
+    z-index: 100;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+
+  header h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: 28px;
+    font-weight: 900;
+    letter-spacing: -0.5px;
+    color: var(--accent);
+    line-height: 1;
+  }
+
+  header .subtitle {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    margin-top: 4px;
+  }
+
+  .add-btn {
+    background: var(--accent);
+    color: #0d0d0d;
+    border: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    font-size: 22px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    flex-shrink: 0;
+    transition: transform 0.15s, background 0.15s;
+    line-height: 1;
+  }
+  .add-btn:hover { background: var(--accent2); transform: scale(1.08); }
+
+  /* Setup banner */
+  #setup-banner {
+    background: linear-gradient(135deg, #1a1508, #1e1a0a);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    margin: 16px;
+    padding: 16px;
+    display: none;
+  }
+  #setup-banner h3 {
+    font-family: 'Playfair Display', serif;
+    color: var(--accent);
+    margin-bottom: 8px;
+    font-size: 15px;
+  }
+  #setup-banner p { color: var(--muted); line-height: 1.6; margin-bottom: 10px; font-size: 12px; }
+  #setup-banner input {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    margin-bottom: 8px;
+  }
+  #setup-banner button {
+    background: var(--accent);
+    color: #0d0d0d;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-family: 'DM Mono', monospace;
+    font-weight: 500;
+    cursor: pointer;
+    width: 100%;
+  }
+
+  /* Shows list */
+  #shows-container {
+    padding: 16px;
+  }
+
+  .section-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    color: var(--muted);
+    margin: 8px 0 10px;
+  }
+
+  .show-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 10px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+    cursor: pointer;
+  }
+  .show-card:hover { border-color: var(--accent); }
+  .show-card.past { opacity: 0.55; }
+
+  .card-header {
+    padding: 14px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .card-left { flex: 1; min-width: 0; }
+
+  .card-date {
+    font-size: 10px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+  }
+
+  .card-venue {
+    font-family: 'Playfair Display', serif;
+    font-size: 18px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text);
+    line-height: 1.2;
+  }
+
+  .card-city {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  .card-badges {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  .badge {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    padding: 3px 7px;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+  .badge-type { background: rgba(200,169,110,0.15); color: var(--accent); border: 1px solid rgba(200,169,110,0.3); }
+  .badge-21 { background: rgba(192,57,43,0.15); color: #e74c3c; border: 1px solid rgba(192,57,43,0.3); }
+
+  .chevron {
+    color: var(--muted);
+    font-size: 12px;
+    flex-shrink: 0;
+    transition: transform 0.25s;
+  }
+  .show-card.open .chevron { transform: rotate(180deg); }
+
+  /* Detail panel */
+  .card-detail {
+    display: none;
+    border-top: 1px solid var(--border);
+    padding: 0;
+    background: var(--surface2);
+  }
+  .show-card.open .card-detail { display: block; }
+
+  .detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+  }
+
+  .detail-cell {
+    background: var(--surface2);
+    padding: 12px 14px;
+  }
+
+  .detail-cell.full { grid-column: 1 / -1; }
+
+  .detail-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+
+  .detail-value {
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.4;
+    word-break: break-word;
+  }
+
+  .detail-value a {
+    color: var(--accent);
+    text-decoration: none;
+    word-break: break-all;
+  }
+
+  .detail-value .check-yes { color: var(--success); }
+  .detail-value .check-no { color: var(--muted); }
+
+  .card-actions {
+    display: flex;
+    gap: 8px;
+    padding: 12px 14px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .btn-sm {
+    flex: 1;
+    padding: 9px 0;
+    border-radius: 8px;
+    border: none;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: opacity 0.15s;
+  }
+  .btn-sm:hover { opacity: 0.85; }
+  .btn-edit { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-cal { background: rgba(200,169,110,0.15); color: var(--accent); border: 1px solid rgba(200,169,110,0.3); }
+  .btn-delete { background: rgba(192,57,43,0.12); color: #e74c3c; border: 1px solid rgba(192,57,43,0.25); }
+
+  /* Empty state */
+  #empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    display: none;
+  }
+  #empty-state .big { font-family: 'Playfair Display', serif; font-size: 40px; margin-bottom: 12px; opacity: 0.3; }
+  #empty-state p { color: var(--muted); line-height: 1.6; }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 200;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s;
+  }
+  .modal-overlay.active {
+    opacity: 1;
+    pointer-events: all;
+  }
+
+  .modal {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    border-radius: 20px 20px 0 0;
+    width: 100%;
+    max-width: 600px;
+    max-height: 92vh;
+    overflow-y: auto;
+    padding: 20px 20px 40px;
+    transform: translateY(100%);
+    transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .modal-overlay.active .modal {
+    transform: translateY(0);
+  }
+
+  .modal-handle {
+    width: 36px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    margin: 0 auto 20px;
+  }
+
+  .modal h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: 22px;
+    color: var(--accent);
+    margin-bottom: 20px;
+  }
+
+  .form-section {
+    margin-bottom: 20px;
+  }
+
+  .form-section-title {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    color: var(--muted);
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 6px;
+  }
+
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .form-row.full { grid-template-columns: 1fr; }
+
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+  }
+
+  input[type="text"],
+  input[type="date"],
+  input[type="time"],
+  input[type="url"],
+  textarea,
+  select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    width: 100%;
+    outline: none;
+    transition: border-color 0.2s;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  input:focus, textarea:focus, select:focus {
+    border-color: var(--accent);
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.7);
+    cursor: pointer;
+  }
+  textarea { resize: vertical; min-height: 70px; }
+
+  select option { background: var(--surface2); }
+
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    margin-bottom: 8px;
+    transition: border-color 0.2s;
+  }
+  .checkbox-row:hover { border-color: var(--accent); }
+  .checkbox-row input[type="checkbox"] {
+    width: 18px; height: 18px;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+    padding: 0;
+    border: none;
+  }
+  .checkbox-row span { font-size: 12px; color: var(--text); }
+
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 24px;
+  }
+
+  .btn-save {
+    flex: 1;
+    padding: 14px;
+    background: var(--accent);
+    color: #0d0d0d;
+    border: none;
+    border-radius: 10px;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn-save:hover { background: var(--accent2); }
+
+  .btn-cancel {
+    padding: 14px 20px;
+    background: var(--surface2);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%) translateY(60px);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 18px;
+    border-radius: 20px;
+    font-size: 12px;
+    z-index: 999;
+    transition: transform 0.3s;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* Loading */
+  .loading {
+    text-align: center;
+    padding: 40px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  @media (max-width: 400px) {
+    .form-row { grid-template-columns: 1fr; }
+    .card-venue { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Setlist</h1>
+    <div class="subtitle">Show Tracker</div>
+  </div>
+  <button class="add-btn" onclick="openModal()" title="Add show">+</button>
+</header>
+
+<div id="setup-banner">
+  <h3>Connect to Supabase</h3>
+  <p>Enter your Supabase project URL and anon key to save your shows to the cloud. Your data will sync across all your devices.</p>
+  <input type="text" id="sb-url" placeholder="https://xxxx.supabase.co"/>
+  <input type="text" id="sb-key" placeholder="your-anon-key"/>
+  <button onclick="saveSupabaseConfig()">Connect & Save</button>
+</div>
+
+<div id="shows-container">
+  <div class="loading" id="loading-msg">Loading shows...</div>
+  <div id="empty-state">
+    <div class="big">🎸</div>
+    <p>No shows yet.<br/>Tap <strong>+</strong> to add your first gig.</p>
+  </div>
+  <div id="upcoming-section" style="display:none">
+    <div class="section-label">Upcoming</div>
+    <div id="upcoming-list"></div>
+  </div>
+  <div id="past-section" style="display:none">
+    <div class="section-label" style="margin-top:16px">Past Shows</div>
+    <div id="past-list"></div>
+  </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-overlay" id="modal-overlay" onclick="handleOverlayClick(event)">
+  <div class="modal" id="modal">
+    <div class="modal-handle"></div>
+    <h2 id="modal-title">Add Show</h2>
+
+    <div class="form-section">
+      <div class="form-section-title">Date & Venue</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Date *</label>
+          <input type="date" id="f-date"/>
+        </div>
+        <div class="form-group">
+          <label>Performance Type</label>
+          <select id="f-type">
+            <option value="">Select...</option>
+            <option>Full Band</option>
+            <option>Solo</option>
+            <option>Duo</option>
+            <option>Trio</option>
+            <option>Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row full">
+        <div class="form-group">
+          <label>Venue Name *</label>
+          <input type="text" id="f-venue" placeholder="The Fillmore"/>
+        </div>
+      </div>
+      <div class="form-row full">
+        <div class="form-group">
+          <label>City</label>
+          <input type="text" id="f-city" placeholder="Nashville, TN"/>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section-title">Schedule</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Doors Time</label>
+          <input type="time" id="f-doors"/>
+        </div>
+        <div class="form-group">
+          <label>Load-In Time</label>
+          <input type="time" id="f-loadin"/>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Soundcheck Time</label>
+          <input type="time" id="f-soundcheck"/>
+        </div>
+        <div class="form-group">
+          <label>Show Time</label>
+          <input type="time" id="f-showtime"/>
+        </div>
+      </div>
+      <div class="form-row full">
+        <div class="form-group">
+          <label>Set Length</label>
+          <input type="text" id="f-setlength" placeholder="45 min"/>
+        </div>
+      </div>
+      <div class="form-row full">
+        <div class="form-group">
+          <label>Rehearsal Day</label>
+          <input type="date" id="f-rehearsal"/>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section-title">Lineup & Bill</div>
+      <div class="form-row full">
+        <div class="form-group">
+          <label>Band Members Playing</label>
+          <textarea id="f-members" placeholder="John - drums&#10;Sarah - bass&#10;Mike - keys"></textarea>
+        </div>
+      </div>
+      <div class="form-row full">
+        <div class="form-group">
+          <label>Other Bands on the Bill</label>
+          <textarea id="f-bands" placeholder="The Other Band, Openers Inc."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section-title">Tech & Logistics</div>
+      <div class="form-row full">
+        <div class="form-group">
+          <label>Backline Information</label>
+          <textarea id="f-backline" placeholder="Fender twin provided, bring your own pedals..."></textarea>
+        </div>
+      </div>
+      <div class="form-row full">
+        <div class="form-group">
+          <label>Ticket Link</label>
+          <input type="url" id="f-ticket" placeholder="https://..."/>
+        </div>
+      </div>
+      <label class="checkbox-row">
+        <input type="checkbox" id="f-21plus"/>
+        <span>21+ Show</span>
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" id="f-bandnotified"/>
+        <span>Band has been notified</span>
+      </label>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section-title">Notes</div>
+      <div class="form-row full">
+        <div class="form-group">
+          <textarea id="f-notes" placeholder="Parking info, contacts, special instructions..."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-save" onclick="saveShow()">Save Show</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── Config ───────────────────────────────────────────
+let sbClient = null;
+let shows = [];
+let editingId = null;
+
+const STORAGE_KEY = 'setlist_shows';
+const SB_URL_KEY = 'sb_url';
+const SB_KEY_KEY = 'sb_key';
+
+// ─── Init ─────────────────────────────────────────────
+async function init() {
+  document.getElementById('loading-msg').style.display = 'none';
+  const url = localStorage.getItem(SB_URL_KEY);
+  const key = localStorage.getItem(SB_KEY_KEY);
+
+  if (url && key) {
+    try {
+      sbClient = window.supabase.createClient(url, key);
+      await loadFromSupabase();
+    } catch(e) {
+      console.error(e);
+      showSetupBanner();
+      loadFromLocal();
+    }
+  } else {
+    showSetupBanner();
+    loadFromLocal();
+  }
+}
+
+function showSetupBanner() {
+  document.getElementById('setup-banner').style.display = 'block';
+}
+
+async function saveSupabaseConfig() {
+  const url = document.getElementById('sb-url').value.trim();
+  const key = document.getElementById('sb-key').value.trim();
+  if (!url || !key) { showToast('Please enter both URL and key'); return; }
+
+  try {
+    sbClient = window.supabase.createClient(url, key);
+    // Test connection by trying to create table if needed
+    const { error } = await sbClient.from('shows').select('id').limit(1);
+    if (error && error.code === '42P01') {
+      showToast('Table not found — see setup instructions below');
+      return;
+    }
+    localStorage.setItem(SB_URL_KEY, url);
+    localStorage.setItem(SB_KEY_KEY, key);
+    document.getElementById('setup-banner').style.display = 'none';
+    showToast('Connected to Supabase!');
+    await loadFromSupabase();
+  } catch(e) {
+    showToast('Connection failed — check your credentials');
+  }
+}
+
+// ─── Data ─────────────────────────────────────────────
+async function loadFromSupabase() {
+  document.getElementById('loading-msg').style.display = 'block';
+  const { data, error } = await sbClient
+    .from('shows')
+    .select('*')
+    .order('date', { ascending: true });
+  document.getElementById('loading-msg').style.display = 'none';
+  if (error) { loadFromLocal(); return; }
+  shows = data || [];
+  renderShows();
+}
+
+function loadFromLocal() {
+  document.getElementById('loading-msg').style.display = 'none';
+  const saved = localStorage.getItem(STORAGE_KEY);
+  shows = saved ? JSON.parse(saved) : [];
+  renderShows();
+}
+
+function saveToLocal() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(shows));
+}
+
+async function saveShow() {
+  const date = document.getElementById('f-date').value;
+  const venue = document.getElementById('f-venue').value.trim();
+  if (!date || !venue) { showToast('Date and venue are required'); return; }
+
+  const showData = {
+    date,
+    venue,
+    city: document.getElementById('f-city').value.trim(),
+    type: document.getElementById('f-type').value,
+    doors: document.getElementById('f-doors').value,
+    loadin: document.getElementById('f-loadin').value,
+    soundcheck: document.getElementById('f-soundcheck').value,
+    showtime: document.getElementById('f-showtime').value,
+    setlength: document.getElementById('f-setlength').value.trim(),
+    rehearsal: document.getElementById('f-rehearsal').value,
+    members: document.getElementById('f-members').value.trim(),
+    bands: document.getElementById('f-bands').value.trim(),
+    backline: document.getElementById('f-backline').value.trim(),
+    ticket: document.getElementById('f-ticket').value.trim(),
+    is21plus: document.getElementById('f-21plus').checked,
+    bandnotified: document.getElementById('f-bandnotified').checked,
+    notes: document.getElementById('f-notes').value.trim(),
+  };
+
+  if (sbClient) {
+    if (editingId) {
+      const { error } = await sbClient.from('shows').update(showData).eq('id', editingId);
+      if (error) { showToast('Error saving: ' + error.message); return; }
+      shows = shows.map(s => s.id === editingId ? { ...showData, id: editingId } : s);
+    } else {
+      const { data, error } = await sbClient.from('shows').insert([showData]).select();
+      if (error) { showToast('Error saving: ' + error.message); return; }
+      shows.push(data[0]);
+    }
+  } else {
+    // local fallback
+    if (editingId) {
+      shows = shows.map(s => s.id === editingId ? { ...showData, id: editingId } : s);
+    } else {
+      showData.id = Date.now().toString();
+      shows.push(showData);
+    }
+    saveToLocal();
+  }
+
+  closeModal();
+  renderShows();
+  showToast(editingId ? 'Show updated!' : 'Show added!');
+}
+
+async function deleteShow(id) {
+  if (!confirm('Delete this show?')) return;
+  if (sbClient) {
+    await sbClient.from('shows').delete().eq('id', id);
+  }
+  shows = shows.filter(s => s.id !== id);
+  saveToLocal();
+  renderShows();
+  showToast('Show deleted');
+}
+
+// ─── Render ───────────────────────────────────────────
+function renderShows() {
+  const today = new Date().toISOString().split('T')[0];
+  const upcoming = shows.filter(s => s.date >= today).sort((a,b) => a.date.localeCompare(b.date));
+  const past = shows.filter(s => s.date < today).sort((a,b) => b.date.localeCompare(a.date));
+
+  const empty = shows.length === 0;
+  document.getElementById('empty-state').style.display = empty ? 'block' : 'none';
+  document.getElementById('upcoming-section').style.display = upcoming.length ? 'block' : 'none';
+  document.getElementById('past-section').style.display = past.length ? 'block' : 'none';
+
+  document.getElementById('upcoming-list').innerHTML = upcoming.map(s => cardHTML(s, false)).join('');
+  document.getElementById('past-list').innerHTML = past.map(s => cardHTML(s, true)).join('');
+}
+
+function fmt(timeStr) {
+  if (!timeStr) return '—';
+  const [h, m] = timeStr.split(':');
+  const hr = parseInt(h);
+  const ampm = hr >= 12 ? 'pm' : 'am';
+  return `${hr % 12 || 12}:${m}${ampm}`;
+}
+
+function fmtDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T12:00:00');
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function cardHTML(s, isPast) {
+  const pastClass = isPast ? 'past' : '';
+  return `
+  <div class="show-card ${pastClass}" id="card-${s.id}">
+    <div class="card-header" onclick="toggleCard('${s.id}')">
+      <div class="card-left">
+        <div class="card-date">${fmtDate(s.date)}</div>
+        <div class="card-venue">${esc(s.venue)}</div>
+        <div class="card-city">${esc(s.city) || '&nbsp;'}</div>
+      </div>
+      <div class="card-badges">
+        ${s.type ? `<span class="badge badge-type">${esc(s.type)}</span>` : ''}
+        ${s.is21plus ? `<span class="badge badge-21">21+</span>` : ''}
+      </div>
+      <span class="chevron">▾</span>
+    </div>
+    <div class="card-detail">
+      <div class="detail-grid">
+        <div class="detail-cell">
+          <div class="detail-label">Doors</div>
+          <div class="detail-value">${fmt(s.doors)}</div>
+        </div>
+        <div class="detail-cell">
+          <div class="detail-label">Load-In</div>
+          <div class="detail-value">${fmt(s.loadin)}</div>
+        </div>
+        <div class="detail-cell">
+          <div class="detail-label">Soundcheck</div>
+          <div class="detail-value">${fmt(s.soundcheck)}</div>
+        </div>
+        <div class="detail-cell">
+          <div class="detail-label">Show Time</div>
+          <div class="detail-value">${fmt(s.showtime)}</div>
+        </div>
+        <div class="detail-cell">
+          <div class="detail-label">Set Length</div>
+          <div class="detail-value">${esc(s.setlength) || '—'}</div>
+        </div>
+        <div class="detail-cell">
+          <div class="detail-label">Rehearsal</div>
+          <div class="detail-value">${s.rehearsal ? fmtDate(s.rehearsal) : '—'}</div>
+        </div>
+        ${s.members ? `<div class="detail-cell full"><div class="detail-label">Band Members</div><div class="detail-value">${esc(s.members).replace(/\n/g,'<br>')}</div></div>` : ''}
+        ${s.bands ? `<div class="detail-cell full"><div class="detail-label">Other Bands</div><div class="detail-value">${esc(s.bands)}</div></div>` : ''}
+        ${s.backline ? `<div class="detail-cell full"><div class="detail-label">Backline</div><div class="detail-value">${esc(s.backline).replace(/\n/g,'<br>')}</div></div>` : ''}
+        ${s.ticket ? `<div class="detail-cell full"><div class="detail-label">Tickets</div><div class="detail-value"><a href="${s.ticket}" target="_blank">View Link →</a></div></div>` : ''}
+        <div class="detail-cell">
+          <div class="detail-label">21+ Show</div>
+          <div class="detail-value">${s.is21plus ? '<span class="check-yes">✓ Yes</span>' : '<span class="check-no">No</span>'}</div>
+        </div>
+        <div class="detail-cell">
+          <div class="detail-label">Band Notified</div>
+          <div class="detail-value">${s.bandnotified ? '<span class="check-yes">✓ Yes</span>' : '<span class="check-no">Not yet</span>'}</div>
+        </div>
+        ${s.notes ? `<div class="detail-cell full"><div class="detail-label">Notes</div><div class="detail-value">${esc(s.notes).replace(/\n/g,'<br>')}</div></div>` : ''}
+      </div>
+      <div class="card-actions">
+        <button class="btn-sm btn-edit" onclick="editShow('${s.id}')">Edit</button>
+        <button class="btn-sm btn-cal" onclick="addToCalendar('${s.id}')">+ Calendar</button>
+        <button class="btn-sm btn-delete" onclick="deleteShow('${s.id}')">Delete</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleCard(id) {
+  const card = document.getElementById('card-' + id);
+  card.classList.toggle('open');
+}
+
+// ─── Calendar ─────────────────────────────────────────
+function addToCalendar(id) {
+  const s = shows.find(x => x.id == id);
+  if (!s) return;
+
+  const title = encodeURIComponent(`🎸 ${s.venue}${s.city ? ' — ' + s.city : ''}`);
+
+  // Build details
+  let details = [];
+  if (s.type) details.push(`Type: ${s.type}`);
+  if (s.loadin) details.push(`Load-in: ${fmt(s.loadin)}`);
+  if (s.soundcheck) details.push(`Soundcheck: ${fmt(s.soundcheck)}`);
+  if (s.showtime) details.push(`Show: ${fmt(s.showtime)}`);
+  if (s.setlength) details.push(`Set: ${s.setlength}`);
+  if (s.members) details.push(`Band: ${s.members}`);
+  if (s.bands) details.push(`Also on bill: ${s.bands}`);
+  if (s.backline) details.push(`Backline: ${s.backline}`);
+  if (s.ticket) details.push(`Tickets: ${s.ticket}`);
+  if (s.notes) details.push(`Notes: ${s.notes}`);
+  const description = encodeURIComponent(details.join('\n'));
+  const location = encodeURIComponent(`${s.venue}${s.city ? ', ' + s.city : ''}`);
+
+  // Build date string
+  const dateBase = s.date.replace(/-/g, '');
+  let startDt, endDt;
+  if (s.showtime) {
+    const [sh, sm] = s.showtime.split(':');
+    startDt = `${dateBase}T${sh}${sm}00`;
+    // Estimate end from set length or default 1hr
+    const mins = parseInt(s.setlength) || 60;
+    const end = new Date(s.date + 'T' + s.showtime + ':00');
+    end.setMinutes(end.getMinutes() + mins);
+    endDt = end.toISOString().replace(/[-:]/g,'').split('.')[0];
+  } else {
+    startDt = dateBase;
+    endDt = dateBase;
+  }
+
+  // Try Google Calendar link (works universally)
+  const gcalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${startDt}/${endDt}&details=${description}&location=${location}`;
+
+  // Also create ICS file for Apple Calendar
+  const ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Setlist//Show Tracker//EN',
+    'BEGIN:VEVENT',
+    `DTSTART:${startDt}`,
+    `DTEND:${endDt}`,
+    `SUMMARY:🎸 ${s.venue}${s.city ? ' — ' + s.city : ''}`,
+    `DESCRIPTION:${details.join('\\n')}`,
+    `LOCATION:${s.venue}${s.city ? ', ' + s.city : ''}`,
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].join('\r\n');
+
+  const blob = new Blob([ics], { type: 'text/calendar' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${s.date}-${s.venue.replace(/\s+/g,'-')}.ics`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  showToast('Calendar file downloaded! Open it to add to Apple Calendar.');
+}
+
+// ─── Modal ────────────────────────────────────────────
+function openModal(show = null) {
+  editingId = show ? show.id : null;
+  document.getElementById('modal-title').textContent = show ? 'Edit Show' : 'Add Show';
+
+  // Clear all fields
+  ['f-date','f-city','f-venue','f-doors','f-loadin','f-soundcheck','f-showtime',
+   'f-setlength','f-rehearsal','f-members','f-bands','f-backline','f-ticket','f-notes'].forEach(id => {
+    document.getElementById(id).value = show ? (show[id.replace('f-','')] || '') : '';
+  });
+  document.getElementById('f-type').value = show ? (show.type || '') : '';
+  document.getElementById('f-21plus').checked = show ? !!show.is21plus : false;
+  document.getElementById('f-bandnotified').checked = show ? !!show.bandnotified : false;
+
+  // Populate correctly with show data keys
+  if (show) {
+    document.getElementById('f-date').value = show.date || '';
+    document.getElementById('f-city').value = show.city || '';
+    document.getElementById('f-venue').value = show.venue || '';
+    document.getElementById('f-doors').value = show.doors || '';
+    document.getElementById('f-loadin').value = show.loadin || '';
+    document.getElementById('f-soundcheck').value = show.soundcheck || '';
+    document.getElementById('f-showtime').value = show.showtime || '';
+    document.getElementById('f-setlength').value = show.setlength || '';
+    document.getElementById('f-rehearsal').value = show.rehearsal || '';
+    document.getElementById('f-members').value = show.members || '';
+    document.getElementById('f-bands').value = show.bands || '';
+    document.getElementById('f-backline').value = show.backline || '';
+    document.getElementById('f-ticket').value = show.ticket || '';
+    document.getElementById('f-notes').value = show.notes || '';
+  }
+
+  document.getElementById('modal-overlay').classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+
+function editShow(id) {
+  const show = shows.find(s => s.id == id);
+  if (show) openModal(show);
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('active');
+  document.body.style.overflow = '';
+}
+
+function handleOverlayClick(e) {
+  if (e.target === document.getElementById('modal-overlay')) closeModal();
+}
+
+// ─── Helpers ──────────────────────────────────────────
+function esc(str) {
+  if (!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+init();
+</script>
+</body>
+</html>
